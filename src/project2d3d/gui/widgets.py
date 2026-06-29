@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QDoubleSpinBox, QSpinBox, QGroupBox, QFileDialog,
-    QComboBox, QStackedWidget, QSlider,
+    QComboBox, QStackedWidget, QSlider, QScrollArea,
 )
 from qtpy.QtCore import Qt
 
@@ -91,7 +91,16 @@ class CylinderWidget(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        layout = QVBoxLayout(self)
+        # Scroll area so controls are never hidden when the panel is short
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        inner_widget = QWidget()
+        scroll.setWidget(inner_widget)
+        outer.addWidget(scroll)
+        layout = QVBoxLayout(inner_widget)
         layout.setAlignment(Qt.AlignTop)
 
         # --- Load ---
@@ -171,7 +180,7 @@ class CylinderWidget(QWidget):
             on_change=self._update_overlay,
         )
         self._rotation_spin = _slider_spinbox(
-            layout, "Rotation Längsachse (°)",
+            layout, "Startwinkel / Phasenversatz (°)",
             min_val=0, max_val=360, default=0, step=1,
             on_change=self._update_overlay,
         )
