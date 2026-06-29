@@ -151,6 +151,7 @@ class CylinderWidget(QWidget):
         self._rotation_spin = _slider_spinbox(
             layout, "Startwinkel / Phasenversatz (°)",
             min_val=0, max_val=360, default=0, step=1,
+            on_change=self._update_overlay,
         )
 
         # --- Theta resolution (shared) ---
@@ -321,6 +322,7 @@ class CylinderWidget(QWidget):
                 r_inner=self._r_inner_spin.value(),
                 r_outer=self._r_outer_spin.value(),
                 n_turns=self._turns_spin.value(),
+                theta_offset_deg=self._rotation_spin.value(),
             )
         else:
             verts, faces = make_cylinder_mesh(

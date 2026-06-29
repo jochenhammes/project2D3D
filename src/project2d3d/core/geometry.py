@@ -65,20 +65,22 @@ def make_spiral_mesh(
     r_inner: float,
     r_outer: float,
     n_turns: float,
+    theta_offset_deg: float = 0.0,
     n_theta: int = 256,
     n_z: int = 32,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Archimedean spiral surface mesh for napari Surface layer.
 
-    The spiral goes from r_inner (θ=0) to r_outer (θ=2π*n_turns).
+    The spiral goes from r_inner (θ=offset) to r_outer (θ=offset+2π*n_turns).
     """
     axis_unit, length, perp1, perp2 = _local_frame(point_a, point_b)
     if axis_unit is None:
         return np.zeros((1, 3), np.float32), np.zeros((1, 3), np.int32)
 
-    thetas = np.linspace(0, 2 * np.pi * n_turns, n_theta, endpoint=False)
-    radii = r_inner + (r_outer - r_inner) * thetas / (2 * np.pi * n_turns)
+    offset = np.deg2rad(theta_offset_deg)
+    thetas = np.linspace(offset, offset + 2 * np.pi * n_turns, n_theta, endpoint=False)
+    radii = r_inner + (r_outer - r_inner) * (thetas - offset) / (2 * np.pi * n_turns)
     zs = np.linspace(0, length, n_z)
 
     theta_grid, z_grid = np.meshgrid(thetas, zs)

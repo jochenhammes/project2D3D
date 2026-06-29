@@ -66,14 +66,16 @@ def unwrap_spiral(
     theta_steps: int = 1000,
     z_steps: int | None = None,
     theta_offset_deg: float = 0.0,
+    radial_range: float = 3.0,
+    radial_samples: int = 7,
 ) -> np.ndarray:
     """
     Unroll an Archimedean spiral surface (rolled scroll) from a 3D volume.
 
-    The radius grows linearly with angle:
-        r(θ) = r_inner + (r_outer - r_inner) * θ / (2π * n_turns)
+    r(θ) = r_inner + (r_outer - r_inner) * θ / (2π * n_turns)
 
-    theta_offset_deg rotates the spiral's angular starting point.
+    To handle thin shells and slight parameter mismatches, a max-intensity
+    projection over ±radial_range voxels around the spiral surface is used.
     Returns shape (z_steps, theta_steps).
     """
     axis_unit, length, perp1, perp2 = _build_local_frame(point_a, point_b)
@@ -81,7 +83,6 @@ def unwrap_spiral(
         z_steps = int(np.round(length))
 
     offset = np.deg2rad(theta_offset_deg)
-    # θ runs from offset to offset + 2π * n_turns
     thetas = np.linspace(offset, offset + 2 * np.pi * n_turns, theta_steps, endpoint=False)
     radii = r_inner + (r_outer - r_inner) * (thetas - offset) / (2 * np.pi * n_turns)
 
@@ -89,10 +90,22 @@ def unwrap_spiral(
     theta_grid, z_grid = np.meshgrid(thetas, zs)
     r_grid, _ = np.meshgrid(radii, zs)
 
-    pts = (
-        point_a
-        + z_grid[:, :, np.newaxis] * axis_unit
-        + r_grid[:, :, np.newaxis] * np.cos(theta_grid)[:, :, np.newaxis] * perp1
-        + r_grid[:, :, np.newaxis] * np.sin(theta_grid)[:, :, np.newaxis] * perp2
-    )
-    return _sample_surface(volume, pts)
+    # Radial direction unit vector at each theta (points outward from axis)
+    # outward = cos(θ)*perp1 + sin(θ)*perp2
+    cos_t = np.cos(theta_grid)
+    sin_t = np.sin(theta_grid)
+
+    # Max-intensity projection across radial_samples shells
+    dr_offsets = np.linspace(-radial_range, radial_range, radial_samples)
+    slices = []
+    for dr in dr_offsets:
+        r = r_grid + dr
+        pts = (
+            point_a
+            + z_grid[:, :, np.newaxis] * axis_unit
+            + r[:, :, np.newaxis] * cos_t[:, :, np.newaxis] * perp1
+            + r[:, :, np.newaxis] * sin_t[:, :, np.newaxis] * perp2
+        )
+        slices.append(_sample_surface(volume, pts))
+
+    return np.max(slices, axis=0)
