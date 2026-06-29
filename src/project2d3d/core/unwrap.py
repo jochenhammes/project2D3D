@@ -65,6 +65,7 @@ def unwrap_spiral(
     n_turns: float,
     theta_steps: int = 1000,
     z_steps: int | None = None,
+    theta_offset_deg: float = 0.0,
 ) -> np.ndarray:
     """
     Unroll an Archimedean spiral surface (rolled scroll) from a 3D volume.
@@ -72,16 +73,17 @@ def unwrap_spiral(
     The radius grows linearly with angle:
         r(θ) = r_inner + (r_outer - r_inner) * θ / (2π * n_turns)
 
+    theta_offset_deg rotates the spiral's angular starting point.
     Returns shape (z_steps, theta_steps).
-    Columns represent arc position from the inner to outer edge of the scroll.
     """
     axis_unit, length, perp1, perp2 = _build_local_frame(point_a, point_b)
     if z_steps is None:
         z_steps = int(np.round(length))
 
-    # θ runs from 0 to 2π * n_turns (full spiral from inside to outside)
-    thetas = np.linspace(0, 2 * np.pi * n_turns, theta_steps, endpoint=False)
-    radii = r_inner + (r_outer - r_inner) * thetas / (2 * np.pi * n_turns)
+    offset = np.deg2rad(theta_offset_deg)
+    # θ runs from offset to offset + 2π * n_turns
+    thetas = np.linspace(offset, offset + 2 * np.pi * n_turns, theta_steps, endpoint=False)
+    radii = r_inner + (r_outer - r_inner) * (thetas - offset) / (2 * np.pi * n_turns)
 
     zs = np.linspace(0, length, z_steps)
     theta_grid, z_grid = np.meshgrid(thetas, zs)

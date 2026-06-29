@@ -147,6 +147,12 @@ class CylinderWidget(QWidget):
         self._param_stack.addWidget(self._build_spiral_params())
         layout.addWidget(self._param_stack)
 
+        # --- Shared: start angle (important for both modes) ---
+        self._rotation_spin = _slider_spinbox(
+            layout, "Startwinkel / Phasenversatz (°)",
+            min_val=0, max_val=360, default=0, step=1,
+        )
+
         # --- Theta resolution (shared) ---
         theta_group = QGroupBox("Winkelauflösung (Schritte)")
         theta_layout = QHBoxLayout(theta_group)
@@ -177,11 +183,6 @@ class CylinderWidget(QWidget):
         self._radius_spin = _slider_spinbox(
             layout, "Radius (Voxel)",
             min_val=1, max_val=300, default=20, step=1,
-            on_change=self._update_overlay,
-        )
-        self._rotation_spin = _slider_spinbox(
-            layout, "Startwinkel / Phasenversatz (°)",
-            min_val=0, max_val=360, default=0, step=1,
             on_change=self._update_overlay,
         )
         return w
@@ -362,6 +363,7 @@ class CylinderWidget(QWidget):
                     r_outer=self._r_outer_spin.value(),
                     n_turns=self._turns_spin.value(),
                     theta_steps=theta_steps,
+                    theta_offset_deg=self._rotation_spin.value(),
                 )
             else:
                 unwrapped = unwrap_cylinder(
