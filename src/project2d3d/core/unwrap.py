@@ -31,16 +31,19 @@ def unwrap_cylinder(
     radius: float,
     theta_steps: int = 360,
     z_steps: int | None = None,
+    theta_offset_deg: float = 0.0,
 ) -> np.ndarray:
     """
     Project a cylindrical surface onto a 2D image.
     Returns shape (z_steps, theta_steps).
+    theta_offset_deg rotates the sampling start angle around the axis.
     """
     axis_unit, length, perp1, perp2 = _build_local_frame(point_a, point_b)
     if z_steps is None:
         z_steps = int(np.round(length))
 
-    thetas = np.linspace(0, 2 * np.pi, theta_steps, endpoint=False)
+    offset = np.deg2rad(theta_offset_deg)
+    thetas = np.linspace(offset, offset + 2 * np.pi, theta_steps, endpoint=False)
     zs = np.linspace(0, length, z_steps)
     theta_grid, z_grid = np.meshgrid(thetas, zs)
 

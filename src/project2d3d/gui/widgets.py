@@ -6,9 +6,68 @@ import matplotlib.pyplot as plt
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QDoubleSpinBox, QSpinBox, QGroupBox, QFileDialog,
-    QComboBox, QStackedWidget,
+    QComboBox, QStackedWidget, QSlider,
 )
 from qtpy.QtCore import Qt
+
+
+def _slider_spinbox(
+    parent_layout: QVBoxLayout,
+    label: str,
+    min_val: float,
+    max_val: float,
+    default: float,
+    step: float = 1.0,
+    decimals: int = 0,
+    on_change=None,
+) -> QDoubleSpinBox | QSpinBox:
+    """Add a labelled slider+spinbox row to parent_layout. Returns the spinbox."""
+    group = QGroupBox(label)
+    inner = QVBoxLayout(group)
+
+    # Spinbox
+    if decimals > 0:
+        spin = QDoubleSpinBox()
+        spin.setDecimals(decimals)
+    else:
+        spin = QSpinBox()
+    spin.setRange(min_val, max_val)
+    spin.setValue(default)
+    spin.setSingleStep(step)
+
+    # Slider (integer ticks, scaled by 1/step)
+    scale = 1.0 / step
+    slider = QSlider(Qt.Horizontal)
+    slider.setRange(int(min_val * scale), int(max_val * scale))
+    slider.setValue(int(default * scale))
+
+    # Bidirectional link
+    updating = [False]
+
+    def slider_to_spin(v):
+        if not updating[0]:
+            updating[0] = True
+            spin.setValue(round(v / scale, decimals))
+            updating[0] = False
+
+    def spin_to_slider(v):
+        if not updating[0]:
+            updating[0] = True
+            slider.setValue(int(v * scale))
+            updating[0] = False
+
+    slider.valueChanged.connect(slider_to_spin)
+    spin.valueChanged.connect(spin_to_slider)
+
+    if on_change:
+        spin.valueChanged.connect(on_change)
+
+    row = QHBoxLayout()
+    row.addWidget(slider, stretch=4)
+    row.addWidget(spin, stretch=1)
+    inner.addLayout(row)
+    parent_layout.addWidget(group)
+    return spin
 
 from project2d3d.io.nifti import load_nifti, save_nifti
 from project2d3d.core.unwrap import unwrap_cylinder, unwrap_spiral
@@ -105,52 +164,37 @@ class CylinderWidget(QWidget):
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setContentsMargins(0, 0, 0, 0)
-        radius_group = QGroupBox("Radius (Voxel)")
-        radius_layout = QHBoxLayout(radius_group)
-        self._radius_spin = QDoubleSpinBox()
-        self._radius_spin.setRange(1.0, 500.0)
-        self._radius_spin.setValue(20.0)
-        self._radius_spin.setSingleStep(1.0)
-        self._radius_spin.valueChanged.connect(self._update_overlay)
-        radius_layout.addWidget(self._radius_spin)
-        layout.addWidget(radius_group)
+        self._radius_spin = _slider_spinbox(
+            layout, "Radius (Voxel)",
+            min_val=1, max_val=300, default=20, step=1,
+            on_change=self._update_overlay,
+        )
+        self._rotation_spin = _slider_spinbox(
+            layout, "Rotation Längsachse (°)",
+            min_val=0, max_val=360, default=0, step=1,
+            on_change=self._update_overlay,
+        )
         return w
 
     def _build_spiral_params(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.setContentsMargins(0, 0, 0, 0)
-
-        inner_group = QGroupBox("Innenradius (Voxel)")
-        inner_layout = QHBoxLayout(inner_group)
-        self._r_inner_spin = QDoubleSpinBox()
-        self._r_inner_spin.setRange(1.0, 500.0)
-        self._r_inner_spin.setValue(10.0)
-        self._r_inner_spin.setSingleStep(1.0)
-        self._r_inner_spin.valueChanged.connect(self._update_overlay)
-        inner_layout.addWidget(self._r_inner_spin)
-        layout.addWidget(inner_group)
-
-        outer_group = QGroupBox("Außenradius (Voxel)")
-        outer_layout = QHBoxLayout(outer_group)
-        self._r_outer_spin = QDoubleSpinBox()
-        self._r_outer_spin.setRange(2.0, 500.0)
-        self._r_outer_spin.setValue(60.0)
-        self._r_outer_spin.setSingleStep(1.0)
-        self._r_outer_spin.valueChanged.connect(self._update_overlay)
-        outer_layout.addWidget(self._r_outer_spin)
-        layout.addWidget(outer_group)
-
-        turns_group = QGroupBox("Anzahl Windungen")
-        turns_layout = QHBoxLayout(turns_group)
-        self._turns_spin = QDoubleSpinBox()
-        self._turns_spin.setRange(0.5, 50.0)
-        self._turns_spin.setValue(3.0)
-        self._turns_spin.setSingleStep(0.5)
-        self._turns_spin.valueChanged.connect(self._update_overlay)
-        turns_layout.addWidget(self._turns_spin)
-        layout.addWidget(turns_group)
-
+        self._r_inner_spin = _slider_spinbox(
+            layout, "Innenradius (Voxel)",
+            min_val=1, max_val=300, default=10, step=1,
+            on_change=self._update_overlay,
+        )
+        self._r_outer_spin = _slider_spinbox(
+            layout, "Außenradius (Voxel)",
+            min_val=2, max_val=300, default=60, step=1,
+            on_change=self._update_overlay,
+        )
+        self._turns_spin = _slider_spinbox(
+            layout, "Anzahl Windungen",
+            min_val=0.5, max_val=20, default=3.0, step=0.5, decimals=1,
+            on_change=self._update_overlay,
+        )
         return w
 
     # ------------------------------------------------------------------
@@ -314,6 +358,7 @@ class CylinderWidget(QWidget):
                     self._volume, point_a, point_b,
                     radius=self._radius_spin.value(),
                     theta_steps=theta_steps,
+                    theta_offset_deg=self._rotation_spin.value(),
                 )
         except Exception as e:
             self._status.setText(f"Fehler: {e}")
