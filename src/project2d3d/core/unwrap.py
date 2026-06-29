@@ -24,6 +24,15 @@ def _sample_surface(volume, pts):
     return sampled.reshape(pts.shape[:2]).astype(np.float32)
 
 
+def _project(slices: list, mode: str) -> np.ndarray:
+    if mode == "min":
+        return np.min(slices, axis=0)
+    elif mode == "mean":
+        return np.mean(slices, axis=0).astype(np.float32)
+    else:
+        return np.max(slices, axis=0)
+
+
 def unwrap_cylinder(
     volume: np.ndarray,
     point_a: np.ndarray,
@@ -32,11 +41,16 @@ def unwrap_cylinder(
     theta_steps: int = 360,
     z_steps: int | None = None,
     theta_offset_deg: float = 0.0,
+    radial_range: float = 1.0,
+    radial_samples: int = 3,
+    projection: str = "max",
 ) -> np.ndarray:
     """
     Project a cylindrical surface onto a 2D image.
     Returns shape (z_steps, theta_steps).
-    theta_offset_deg rotates the sampling start angle around the axis.
+
+    A small radial MIP (±radial_range voxels) makes min/mean projections
+    meaningful and improves robustness near the shell boundary.
     """
     axis_unit, length, perp1, perp2 = _build_local_frame(point_a, point_b)
     if z_steps is None:
@@ -46,14 +60,20 @@ def unwrap_cylinder(
     thetas = np.linspace(offset, offset + 2 * np.pi, theta_steps, endpoint=False)
     zs = np.linspace(0, length, z_steps)
     theta_grid, z_grid = np.meshgrid(thetas, zs)
+    cos_t, sin_t = np.cos(theta_grid), np.sin(theta_grid)
 
-    pts = (
-        point_a
-        + z_grid[:, :, np.newaxis] * axis_unit
-        + radius * np.cos(theta_grid)[:, :, np.newaxis] * perp1
-        + radius * np.sin(theta_grid)[:, :, np.newaxis] * perp2
-    )
-    return _sample_surface(volume, pts)
+    dr_offsets = np.linspace(-radial_range, radial_range, radial_samples)
+    slices = []
+    for dr in dr_offsets:
+        r = radius + dr
+        pts = (
+            point_a
+            + z_grid[:, :, np.newaxis] * axis_unit
+            + r * cos_t[:, :, np.newaxis] * perp1
+            + r * sin_t[:, :, np.newaxis] * perp2
+        )
+        slices.append(_sample_surface(volume, pts))
+    return _project(slices, projection)  # cylinder end
 
 
 def unwrap_spiral(
@@ -68,6 +88,7 @@ def unwrap_spiral(
     theta_offset_deg: float = 0.0,
     radial_range: float = 3.0,
     radial_samples: int = 7,
+    projection: str = "max",
 ) -> np.ndarray:
     """
     Unroll an Archimedean spiral surface (rolled scroll) from a 3D volume.
@@ -95,7 +116,6 @@ def unwrap_spiral(
     cos_t = np.cos(theta_grid)
     sin_t = np.sin(theta_grid)
 
-    # Max-intensity projection across radial_samples shells
     dr_offsets = np.linspace(-radial_range, radial_range, radial_samples)
     slices = []
     for dr in dr_offsets:
@@ -108,4 +128,4 @@ def unwrap_spiral(
         )
         slices.append(_sample_surface(volume, pts))
 
-    return np.max(slices, axis=0)
+    return _project(slices, projection)

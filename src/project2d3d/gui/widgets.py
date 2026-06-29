@@ -3,12 +3,13 @@ import napari
 import matplotlib
 matplotlib.use("QtAgg")
 import matplotlib.pyplot as plt
+import threading
 from qtpy.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QDoubleSpinBox, QSpinBox, QGroupBox, QFileDialog,
-    QComboBox, QStackedWidget, QSlider, QScrollArea,
+    QComboBox, QStackedWidget, QSlider, QScrollArea, QCheckBox,
 )
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, QTimer, Signal
 
 
 def _slider_spinbox(
@@ -77,6 +78,9 @@ from project2d3d.core.geometry import make_cylinder_mesh, make_spiral_mesh
 
 
 class CylinderWidget(QWidget):
+    _sig_preview_done = Signal(object)
+    _sig_preview_error = Signal(str)
+
     def __init__(self, viewer: napari.Viewer):
         super().__init__()
         self.viewer = viewer
@@ -88,7 +92,19 @@ class CylinderWidget(QWidget):
         self._last_png_path: str | None = None
         self._unwrapped: np.ndarray | None = None
 
+        # Live preview infrastructure
+        self._preview_lock = threading.Lock()
+        self._preview_running = False
+        self._preview_rerun = False
+        self._preview_timer = QTimer()
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(500)
+        self._preview_timer.timeout.connect(self._run_preview_thread)
+        self._sig_preview_done.connect(self._on_preview_done)
+        self._sig_preview_error.connect(self._on_preview_error)
+
         self._build_ui()
+        self._connect_preview_signals()
 
     def _build_ui(self):
         # Scroll area so controls are never hidden when the panel is short
@@ -164,10 +180,26 @@ class CylinderWidget(QWidget):
         theta_layout.addWidget(self._theta_spin)
         layout.addWidget(theta_group)
 
+        # --- Projection mode (shared) ---
+        proj_group = QGroupBox("Projektion (radiale Richtung)")
+        proj_layout = QHBoxLayout(proj_group)
+        self._proj_combo = QComboBox()
+        self._proj_combo.addItems(["Max (MIP)", "Min (MinIP)", "Mittelwert"])
+        proj_layout.addWidget(self._proj_combo)
+        layout.addWidget(proj_group)
+
         # --- Actions ---
+        btn_row = QHBoxLayout()
         btn_unwrap = QPushButton("Abwickeln →")
         btn_unwrap.clicked.connect(self._unwrap)
-        layout.addWidget(btn_unwrap)
+        btn_row.addWidget(btn_unwrap)
+
+        self._live_check = QCheckBox("Live")
+        self._live_check.setToolTip(
+            "Abwicklung automatisch neu berechnen wenn Parameter geändert werden"
+        )
+        btn_row.addWidget(self._live_check)
+        layout.addLayout(btn_row)
 
         btn_export = QPushButton("Ergebnis als NIfTI exportieren")
         btn_export.clicked.connect(self._export_nifti)
@@ -358,6 +390,7 @@ class CylinderWidget(QWidget):
 
         self._status.setText("Berechne Abwicklung…")
         try:
+            proj = self._projection_mode()
             if self._is_spiral():
                 unwrapped = unwrap_spiral(
                     self._volume, point_a, point_b,
@@ -366,6 +399,7 @@ class CylinderWidget(QWidget):
                     n_turns=self._turns_spin.value(),
                     theta_steps=theta_steps,
                     theta_offset_deg=self._rotation_spin.value(),
+                    projection=proj,
                 )
             else:
                 unwrapped = unwrap_cylinder(
@@ -373,6 +407,7 @@ class CylinderWidget(QWidget):
                     radius=self._radius_spin.value(),
                     theta_steps=theta_steps,
                     theta_offset_deg=self._rotation_spin.value(),
+                    projection=proj,
                 )
         except Exception as e:
             self._status.setText(f"Fehler: {e}")
@@ -430,3 +465,110 @@ class CylinderWidget(QWidget):
         affine = np.eye(4) if self._affine is None else self._affine
         save_nifti(self._unwrapped, affine, path)
         self._status.setText(f"Gespeichert: {path}")
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _projection_mode(self) -> str:
+        return ["max", "min", "mean"][self._proj_combo.currentIndex()]
+
+    # ------------------------------------------------------------------
+    # Live preview
+    # ------------------------------------------------------------------
+
+    def _connect_preview_signals(self):
+        """Connect all parameter widgets to the live-preview scheduler."""
+        for spin in [
+            self._radius_spin, self._rotation_spin,
+            self._r_inner_spin, self._r_outer_spin, self._turns_spin,
+            self._theta_spin,
+        ]:
+            spin.valueChanged.connect(self._schedule_preview)
+        self._proj_combo.currentIndexChanged.connect(self._schedule_preview)
+        self._mode_combo.currentIndexChanged.connect(self._schedule_preview)
+
+    def _schedule_preview(self):
+        if self._live_check.isChecked() and self._volume is not None:
+            self._preview_timer.start()  # restarts timer on each call (debounce)
+
+    def _capture_params(self) -> dict:
+        """Read all widget values in the main thread for safe hand-off to worker."""
+        result = self._get_axis_points()
+        if result is None:
+            return {}
+        point_a, point_b = result
+        proj = self._projection_mode()
+        theta_steps = self._theta_spin.value()
+        offset = self._rotation_spin.value()
+        if self._is_spiral():
+            return dict(
+                mode="spiral",
+                volume=self._volume,
+                point_a=point_a, point_b=point_b,
+                r_inner=self._r_inner_spin.value(),
+                r_outer=self._r_outer_spin.value(),
+                n_turns=self._turns_spin.value(),
+                theta_steps=theta_steps,
+                theta_offset_deg=offset,
+                projection=proj,
+            )
+        else:
+            return dict(
+                mode="cylinder",
+                volume=self._volume,
+                point_a=point_a, point_b=point_b,
+                radius=self._radius_spin.value(),
+                theta_steps=theta_steps,
+                theta_offset_deg=offset,
+                projection=proj,
+            )
+
+    def _run_preview_thread(self):
+        with self._preview_lock:
+            if self._preview_running:
+                self._preview_rerun = True
+                return
+            self._preview_running = True
+
+        params = self._capture_params()
+        if not params:
+            with self._preview_lock:
+                self._preview_running = False
+            return
+
+        self._status.setText("Berechne Vorschau …")
+
+        def worker():
+            try:
+                if params["mode"] == "spiral":
+                    p = {k: v for k, v in params.items() if k != "mode"}
+                    result = unwrap_spiral(**p)
+                else:
+                    p = {k: v for k, v in params.items() if k != "mode"}
+                    result = unwrap_cylinder(**p)
+                self._sig_preview_done.emit(result)
+            except Exception as e:
+                self._sig_preview_error.emit(str(e))
+            finally:
+                with self._preview_lock:
+                    self._preview_running = False
+                    rerun = self._preview_rerun
+                    self._preview_rerun = False
+                if rerun:
+                    self._preview_timer.start(100)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_preview_done(self, result: np.ndarray):
+        self._unwrapped = result
+        self._show_result_window(result)
+        self._status.setText(
+            f"Live-Vorschau — Shape: {result.shape}  "
+            f"[{self._proj_combo.currentText()}]"
+        )
+
+    def _on_preview_error(self, msg: str):
+        self._status.setText(f"Vorschau-Fehler: {msg}")
+        with self._preview_lock:
+            self._preview_running = False
