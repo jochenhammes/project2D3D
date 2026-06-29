@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Test data (NIfTI-Dateien können groß sein — lokal behalten)
+test_data/*.nii
+test_data/*.nii.gz
+
+# Rohdaten
+*.nii
+*.nii.gz
+
+# Ausgabe-PNGs im Projektroot (temporär)
+unwrapped*.png
+
+# IDE
+.idea/
+.vscode/
+*.swp

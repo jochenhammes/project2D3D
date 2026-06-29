@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "project2d3d"
+version = "0.1.0"
+description = "Cylindrical unwrapping of 3D voxel data from NIfTI files"
+requires-python = ">=3.10"
+dependencies = [
+    "napari[all]>=0.5.0",
+    "nibabel>=5.0",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "scikit-image>=0.21",
+    "magicgui>=0.8",
+    "qtpy>=2.0",
+]
+
+[project.scripts]
+project2d3d = "project2d3d.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/project2d3d"]
