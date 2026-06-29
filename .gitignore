@@ -24,6 +24,7 @@ test_data/*.nii.gz
 
 # Ausgabe-PNGs im Projektroot (temporär)
 unwrapped*.png
+Bildschirmfoto*.png
 
 # IDE
 .idea/
