@@ -47,7 +47,8 @@ def _slider_spinbox(
     def slider_to_spin(v):
         if not updating[0]:
             updating[0] = True
-            spin.setValue(round(v / scale, decimals))
+            val = v / scale
+            spin.setValue(int(round(val)) if decimals == 0 else round(val, decimals))
             updating[0] = False
 
     def spin_to_slider(v):
